@@ -9,31 +9,90 @@
 #include<fcntl.h>
 #include<dirent.h>
 
+enum//mem_info enum
+{
+	NAME3_COLUMN,
+	SIZE_COLUMN,
+	KB_COLUMN,
+	NM_COLUMNS
+};
+
+enum//process_info enum
+{
+	NAME_COLUMN,
+	PID_COLUMN,
+	STATUS_COLUMN,
+	VMEM_COLUMN,
+	RMEM_COLUMN,
+	NP_COLUMNS
+};
+
+enum//Vmem_page_info enum
+{
+	ADDRESS_COLUMN,
+	PERMS_COLUMN,
+	OFFSET_COLUMN,
+	DEV_COLUMN,
+	INODE_COLUMN,
+	NAME1_COLUMN,
+	NV_COLUMNS
+};
+
 GtkWidget *window;//主窗口
 GtkWidget *notebook;//notebook控件
 GtkWidget *vbox;
+GtkWidget *hbox;
+
 GtkWidget *table;
 GtkWidget *label0[5];
 GtkWidget *frame[5];
 GtkWidget *frame0;
 GtkWidget *table1[5];//定义每个notebook中的控件
+
 GtkWidget *time_label;
 GtkWidget *uptime_label;
+GtkWidget *v_label;
+GtkWidget *r_label;
+
 GtkWidget *MenuBar;
 GtkWidget *MenuItemFile, *MenuItemShutDown, *MenuItemHelp;
+
 GtkWidget *process_label;
 GtkWidget *cpu_rate_label;
 GtkWidget *mem_rate_label;
 GtkWidget *swap_rate_label;
+
 GtkWidget *cpu_bar;
 GtkWidget *mem_bar;
 GtkWidget *swap_bar;
 
+GtkWidget *scrolled_window;
+
+GtkListStore *mem_store;
+GtkListStore *pro_store;
+GtkListStore *vmem_store;
+
+GtkWidget *mtree_view;
+GtkWidget *ptree_view;
+GtkWidget *vtree_view;
+
+GtkWidget *label;
+GtkWidget *entry;
+GtkWidget *button;
+
+GtkCellRenderer *mrenderer;//tree view 中的每个列的标题
+GtkCellRenderer *prenderer;
+GtkCellRenderer *vrenderer;
+
+GtkTreeViewColumn *mcolumn;//tree view 中的每个列
+GtkTreeViewColumn *pcolumn;
+GtkTreeViewColumn *vcolumn;
+
 int USER = 0, NICE = 0, SYSTEM = 0, IDLE = 0;
 float cpu_rate, mem_rate, swap_rate;
-const char *title[6]={" 资源信息 "," 内存信息 "," 进程信息 "," 磁盘信息 "," 系统信息 "};
+const char *title[6]={" 进程信息 "," 内存信息 "," 逻辑地址 "," 物理地址 "," 资源信息 "};
 
-//定义菜单栏
+//定义菜单栏函数
 GtkWidget *CreateMenuItem(GtkWidget *, char *);
 GtkWidget *CreateMenuFile(GtkWidget *);
 GtkWidget *CreateMenuShutDown(GtkWidget *);
@@ -41,14 +100,27 @@ GtkWidget *CreateMenuHelp(GtkWidget *);
 
 int sys_time(void);
 int uptime(void);
+
 int select_name(char name[]);
+
 int process_num(void);
+
 int cpu_rate_ava(void);
 int mem_rate_ava(void);
 int swap_rate_ava(void);
 
 void notebook_cpu_init(void);
 void notebook_mem_init(void);
+void notebook_pro_init(void);
+void notebook_vmem_init(void);
+
+int get_mem_info(void);
+int get_pro_info(void);
+int get_vmem_info(char *string);
+
+void on_clicked(void);
+
+void show_dialog(char *title, char *content);
 
 //关闭窗口
 void delete_event(GtkWidget *window, gpointer data)
@@ -92,7 +164,8 @@ void aboutSysMo(GtkWidget *window, gpointer data)
 	gtk_widget_show(label2);
 	gtk_widget_show(dialog);
 }
- 
+
+//---------------------主函数--------------------
 int main(int argc, char *argv[])
 {
 	int i;
@@ -102,19 +175,18 @@ int main(int argc, char *argv[])
 	gtk_set_locale ();//初始化运行环境
 	gtk_init(&argc,&argv);
 
-	window=gtk_window_new(GTK_WINDOW_TOPLEVEL);//创建主窗口
-	gtk_window_set_title(GTK_WINDOW(window),"任务管理器");//设置窗口标题
+	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);//创建主窗口
+	gtk_window_set_title(GTK_WINDOW(window),"查看进程使用内存物理地址的利器");//设置窗口标题
 	gtk_widget_set_usize(window, 600, 500);//设置窗口大小 
 	gtk_window_set_resizable (GTK_WINDOW (window), TRUE);// 窗口大小可改变（TRUE）
 	gtk_container_set_border_width(GTK_CONTAINER(window),5);//设置窗口边框宽度
 	gtk_widget_show(window);
 
-	table=gtk_table_new(12,11,TRUE);//创建表格12行*11列
+	table = gtk_table_new(12,11,TRUE);//创建表格12行*11列
 	gtk_widget_show(table);
 	gtk_container_add(GTK_CONTAINER(window),table);//将table装进窗口 
 
-
-	notebook=gtk_notebook_new();//创建notebook
+	notebook = gtk_notebook_new();
 	gtk_notebook_set_tab_pos(GTK_NOTEBOOK(notebook),GTK_POS_TOP);//设置notebook的格式
 	gtk_table_attach_defaults (GTK_TABLE (table), notebook, 0, 11, 1, 11);//将notebook加入表格中
 	gtk_widget_show(notebook);
@@ -132,6 +204,20 @@ int main(int argc, char *argv[])
 		gtk_widget_show(table1[i]);
 		gtk_container_add(GTK_CONTAINER(frame[i]), table1[i]);
 	}
+
+	label = gtk_label_new("Select By PID:");
+	gtk_table_attach_defaults(GTK_TABLE(table), label, 0, 4, 0, 1);
+	gtk_widget_show(label);
+
+	entry = gtk_entry_new();
+	gtk_table_attach_defaults(GTK_TABLE(table), entry, 4, 6, 0, 1);
+	gtk_widget_show(entry);
+
+	button = gtk_button_new_with_label(" SELECT ");
+	gtk_widget_set_size_request(button, 10, 10);
+	gtk_table_attach_defaults(GTK_TABLE(table), button, 8, 10, 0, 1);
+	g_signal_connect(G_OBJECT(button), "clicked", G_CALLBACK(on_clicked), NULL);
+	gtk_widget_show(button);
 
 	time_label = gtk_label_new("");
 	timer = gtk_timeout_add(1000, (GtkFunction)sys_time, data);
@@ -182,13 +268,16 @@ int main(int argc, char *argv[])
 
 	notebook_cpu_init();
 	notebook_mem_init();
-			
+	notebook_pro_init();
+//	notebook_vmem_init();
+
 	gtk_signal_connect(GTK_OBJECT(window), "delete_event", GTK_SIGNAL_FUNC(delete_event), NULL);
  
 	gtk_main();
 	return 0;
 }
 
+//---系统时间
 int sys_time(void)
 {
 	time_t timep;
@@ -209,6 +298,7 @@ int sys_time(void)
 	return 1;
 }
 
+//----系统启动时间与运行时间
 int uptime(void)
 {
 	int ut_fd, now_time, run_time, start_time, h, m, s;
@@ -304,7 +394,7 @@ GtkWidget *CreateMenuHelp(GtkWidget *MenuItem)
 	GtkWidget *Menu;
 	GtkWidget *AboutGtk;
 	Menu = gtk_menu_new();
-	AboutGtk = CreateMenuItem(Menu, "关于任务管理器");
+	AboutGtk = CreateMenuItem(Menu, "关于该利器");
 	gtk_signal_connect(GTK_OBJECT(AboutGtk), "activate", GTK_SIGNAL_FUNC(aboutSysMo), NULL);
 	gtk_menu_item_set_submenu(GTK_MENU_ITEM(MenuItem), Menu);
 	gtk_widget_show(Menu);
@@ -481,7 +571,7 @@ void notebook_cpu_init(void)
 {
 	vbox = gtk_vbox_new(FALSE, 0);
 	gtk_widget_show(vbox);
-	gtk_table_attach_defaults(GTK_TABLE(table1[0]), vbox, 0, 12, 0, 12);
+	gtk_table_attach_defaults(GTK_TABLE(table1[4]), vbox, 0, 12, 0, 12);
 	
 	frame0 = gtk_frame_new("CPU");
 	gtk_widget_show(frame0);
@@ -504,6 +594,293 @@ void notebook_cpu_init(void)
 	gtk_container_add(GTK_CONTAINER(frame0), uptime_label);
 }
 
-void notebook_mem_info(void)
+void notebook_mem_init(void)
 {
-		
+	int timer;
+	int i;
+	gpointer data;
+	char *col_name[3] = {"project", "size", " "};
+	vbox = gtk_vbox_new(FALSE, 0);
+	gtk_table_attach_defaults(GTK_TABLE(table1[1]), vbox, 0, 12, 0, 12);
+	gtk_widget_show(vbox);
+
+	scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+	gtk_widget_set_size_request(scrolled_window, 300, 300);
+	gtk_widget_show(scrolled_window);
+	gtk_box_pack_start(GTK_BOX(vbox), scrolled_window, TRUE, TRUE, 0);
+
+	mem_store = gtk_list_store_new(NM_COLUMNS,
+					G_TYPE_STRING,
+					G_TYPE_STRING,
+					G_TYPE_STRING);
+
+	mtree_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(mem_store));
+	//进程信息数；
+	
+	g_object_unref(G_OBJECT(mem_store));
+
+	gtk_container_add(GTK_CONTAINER(scrolled_window), mtree_view);
+	gtk_widget_show(mtree_view);
+
+	
+	for(i = 0; i < 3; i++)
+	{
+		mrenderer = gtk_cell_renderer_text_new();
+		mcolumn = gtk_tree_view_column_new_with_attributes(col_name[i], mrenderer, "text", i, NULL);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(mtree_view), mcolumn);
+	}
+
+	timer = gtk_timeout_add(1000, (GtkFunction)get_mem_info, data);
+}
+
+int get_mem_info(void)
+{
+	int mem_fd;
+	int i = 1, j, m;
+	char buf[1000];
+	GtkTreeIter iter;
+	char *c[50], *ch[3];
+	char *p;
+
+	mem_fd = open("/proc/meminfo", O_RDONLY);
+	read(mem_fd, buf, 1000);
+	close(mem_fd);
+
+	c[0] = strtok(buf, "\n");
+	while(p = strtok(NULL, "\n"))
+	{
+		c[i] = p;
+		i++;
+	}
+	
+	gtk_list_store_clear(mem_store);//清屏
+
+	for(j = 0; j < i; j++)
+	{
+		m = 1;
+		ch[0] = strtok(c[j], " ");
+		while(p = strtok(NULL, " "))
+		{
+			ch[m] = p;
+			m++;
+		}
+
+		gtk_list_store_append(mem_store, &iter);//重新写入值
+		gtk_list_store_set(mem_store, &iter,
+					NAME3_COLUMN, ch[0],
+					SIZE_COLUMN, ch[1],
+					KB_COLUMN, ch[2],
+					-1);
+	}
+
+	return 1;
+}
+
+void notebook_pro_init(void)
+{
+	int i;
+	int timer;
+	gpointer data;
+	char *col_name[5] = {"进程名", "PID", "状态", "虚拟内存", "物理内存"};
+
+	vbox = gtk_vbox_new(FALSE, 0);
+	gtk_table_attach_defaults(GTK_TABLE(table1[0]), vbox, 0, 12, 0, 12);
+	gtk_widget_show(vbox);
+
+	scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+	gtk_widget_set_size_request(scrolled_window, 300, 300);
+	gtk_box_pack_start(GTK_BOX(vbox), scrolled_window, TRUE, TRUE, 0);
+	gtk_widget_show(scrolled_window);
+
+	pro_store = gtk_list_store_new(NP_COLUMNS,
+								G_TYPE_STRING,
+								G_TYPE_STRING,
+								G_TYPE_STRING,
+								G_TYPE_STRING,
+								G_TYPE_STRING);
+	
+	ptree_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(pro_store));
+
+	g_object_unref(G_OBJECT(pro_store));
+
+	gtk_widget_show(ptree_view);
+
+	gtk_container_add(GTK_CONTAINER(scrolled_window), ptree_view);
+
+	for(i = 0; i < 5; i++)
+	{
+		prenderer = gtk_cell_renderer_text_new();
+		pcolumn = gtk_tree_view_column_new_with_attributes(col_name[i], prenderer, "text", i, NULL);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(ptree_view), pcolumn);
+	}
+
+//	get_pro_info();
+	timer = gtk_timeout_add(1000, (GtkFunction)get_pro_info, data);
+}
+
+int get_pro_info(void)
+{
+	DIR *dir;
+	struct dirent *entry;
+	int fd;
+	int Vmem, Rmem;
+	int i = 1;
+	char dir_buf[256];
+	char buffer[128];
+	char *info[50], *p;
+	char Vmem_buffer[50];
+	char Rmem_buffer[50];
+	GtkTreeIter iter;
+
+	gtk_list_store_clear(pro_store);
+
+	dir = opendir("/proc");
+	while((entry = readdir(dir)) != NULL)
+	{
+		if((entry->d_name[0] >= '0') && (entry->d_name[0] <= '9'))
+		{
+			sprintf(dir_buf, "/proc/%s/stat", entry->d_name);
+			fd = open(dir_buf, O_RDONLY);
+			read(fd, buffer, sizeof(buffer));
+			close(fd);
+			
+			info[0] = strtok(buffer, " ");
+			i = 1;
+			while((p = strtok(NULL, " ")) != NULL)
+					{
+						info[i] = p;
+						i++;
+						}
+			Vmem = atoi(info[22]);
+			Vmem = Vmem / 1024;
+			sprintf(Vmem_buffer, "%d KB", Vmem);
+			
+//			printf("V: %s\n", Vmem_buffer);
+
+			Rmem = atoi(info[23]);
+			Rmem = Rmem * 4;
+			sprintf(Rmem_buffer, "%d KB", Rmem);
+			
+//			printf("R: %s\n", Rmem_buffer);
+
+			gtk_list_store_append(pro_store, &iter);
+			gtk_list_store_set(pro_store, &iter,
+					NAME_COLUMN, info[1],
+					PID_COLUMN, info[0],
+					STATUS_COLUMN, info[2],
+					VMEM_COLUMN, Vmem_buffer,
+					RMEM_COLUMN, Rmem_buffer,
+					-1);
+//			printf("OK\n");
+
+		}
+	}
+	closedir(dir);
+
+
+	return 1;
+}
+
+void notebook_vmem_init(void)
+{
+	int i;
+	char txt[50];
+	char *col_name[6] = {"地址", "权限", "偏移量", "设备", "节点", "路径"};
+
+	vbox = gtk_vbox_new(FALSE, 0);
+	gtk_table_attach_defaults(GTK_TABLE(table1[2]), vbox, 0, 12, 0, 11);
+	gtk_widget_show(vbox);
+
+	scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+	gtk_widget_set_size_request(scrolled_window, 300, 300);
+	gtk_box_pack_start(GTK_BOX(vbox), scrolled_window, TRUE, TRUE, 0);
+	gtk_widget_show(scrolled_window);
+
+	vmem_store = gtk_list_store_new(NV_COLUMNS,
+						G_TYPE_STRING,
+						G_TYPE_STRING,
+						G_TYPE_STRING,
+						G_TYPE_STRING,
+						G_TYPE_STRING,
+						G_TYPE_STRING);
+
+	vtree_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(vmem_store));
+
+	g_object_unref(G_OBJECT(vtree_view));
+
+	gtk_container_add(GTK_CONTAINER(scrolled_window), vtree_view);
+	gtk_widget_show(vtree_view);
+
+	for(i = 0; i < 6; i++)
+	{
+		vrenderer = gtk_cell_renderer_text_new();
+		vcolumn = gtk_tree_view_column_new_with_attributes(col_name[i], vrenderer, "text", i, NULL);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(vtree_view), vcolumn); 
+	}
+
+	v_label = gtk_label_new("Virtual Memory Size:");
+	gtk_table_attach_defaults(GTK_TABLE(table1[2]), v_label, 2, 9, 11, 12);
+	gtk_widget_show(v_label);
+
+	strcpy(txt, gtk_entry_get_text(GTK_ENTRY(entry)));
+	get_vmem_info(txt);
+
+}
+
+int get_vmem_info(char *string)
+{
+	char buffer[100 * 1024];
+	char dir1[50];
+	int fd1;
+	int bytes;
+
+	sprintf(dir1, "/proc/%s/maps", string);
+	fd1 = open(dir1, O_RDONLY);
+	if(fd1 == -1)
+	{
+		char *title = "错误1";
+		char *content = "\n                 打开文件失败             \n";
+		show_dialog(title, content);
+	}
+	
+	bytes = read(fd1, buffer, sizeof(buffer));
+	if(bytes == 0 || bytes == sizeof(buffer))
+	{
+		char *title1 = "错误2";
+		char *content1 = "\n                读取文件失败             \n";
+		show_dialog(title1, content1);
+	}
+
+	return 1;
+}
+
+void show_dialog(char *title, char *content)
+{
+	GtkWidget *dialog;
+	GtkWidget *label;
+
+	dialog = gtk_dialog_new_with_buttons(title,
+									GTK_WINDOW(window),
+									GTK_DIALOG_DESTROY_WITH_PARENT,
+									GTK_STOCK_CLOSE,
+									GTK_RESPONSE_NONE,
+									NULL);
+	gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
+	g_signal_connect_swapped(dialog,
+							"response",
+							G_CALLBACK(gtk_widget_destroy),
+							dialog);
+
+	label = gtk_label_new(content);
+	gtk_widget_show(label);
+	gtk_container_add(GTK_CONTAINER(GTK_DIALOG(dialog)->vbox),
+					label);
+
+	gtk_widget_show(dialog);
+}
+
+void on_clicked(void)
+{
+	gtk_list_store_clear(vmem_store);
+	notebook_vmem_init();
+}
