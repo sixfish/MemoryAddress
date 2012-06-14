@@ -38,6 +38,13 @@ enum//Vmem_page_info enum
 	NV_COLUMNS
 };
 
+enum//Rmem_page_info enum
+{
+	ADDRESS1_COLUMN,
+	OFFSET1_COLUMN,
+	NR_COLUMNS
+};
+
 GtkWidget *window;//主窗口
 GtkWidget *notebook;//notebook控件
 GtkWidget *vbox;
@@ -71,10 +78,12 @@ GtkWidget *scrolled_window;
 GtkListStore *mem_store;
 GtkListStore *pro_store;
 GtkListStore *vmem_store;
+GtkListStore *rmem_store;
 
 GtkWidget *mtree_view;
 GtkWidget *ptree_view;
 GtkWidget *vtree_view;
+GtkWidget *rtree_view;
 
 GtkWidget *label;
 GtkWidget *entry;
@@ -83,10 +92,12 @@ GtkWidget *button;
 GtkCellRenderer *mrenderer;//tree view 中的每个列的标题
 GtkCellRenderer *prenderer;
 GtkCellRenderer *vrenderer;
+GtkCellRenderer *rrenderer;
 
 GtkTreeViewColumn *mcolumn;//tree view 中的每个列
 GtkTreeViewColumn *pcolumn;
 GtkTreeViewColumn *vcolumn;
+GtkTreeViewColumn *rcolumn;
 
 int USER = 0, NICE = 0, SYSTEM = 0, IDLE = 0;
 float cpu_rate, mem_rate, swap_rate;
@@ -113,10 +124,12 @@ void notebook_cpu_init(void);
 void notebook_mem_init(void);
 void notebook_pro_init(void);
 void notebook_vmem_init(void);
+void notebook_rmem_init(void);
 
 int get_mem_info(void);
 int get_pro_info(void);
 int get_vmem_info(char *string);
+int get_rmem_info(char *string);
 
 void on_clicked(void);
 
@@ -156,11 +169,11 @@ void aboutSysMo(GtkWidget *window, gpointer data)
 	gtk_widget_show(dtable); 
 
 	label = gtk_label_new("version: 1.0.1");
-	gtk_table_attach_defaults(GTK_TABLE(dtable), label, 0, 10, 0, 1);
+	gtk_table_attach_defaults(GTK_TABLE(dtable), label, 0, 10, 0, 3);
 	gtk_widget_show(label);
 
 	label2 = gtk_label_new("\n作者：SixFish\n受虐时期：2012年春\n");
-	gtk_table_attach_defaults(GTK_TABLE(dtable), label2, 0, 10, 1, 11);
+	gtk_table_attach_defaults(GTK_TABLE(dtable), label2, 0, 10, 3, 11);
 	gtk_widget_show(label2);
 	gtk_widget_show(dialog);
 }
@@ -176,7 +189,7 @@ int main(int argc, char *argv[])
 	gtk_init(&argc,&argv);
 
 	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);//创建主窗口
-	gtk_window_set_title(GTK_WINDOW(window),"查看进程使用内存物理地址的利器");//设置窗口标题
+	gtk_window_set_title(GTK_WINDOW(window),"查看进程使用内存地址的利器");//设置窗口标题
 	gtk_widget_set_usize(window, 600, 500);//设置窗口大小 
 	gtk_window_set_resizable (GTK_WINDOW (window), TRUE);// 窗口大小可改变（TRUE）
 	gtk_container_set_border_width(GTK_CONTAINER(window),5);//设置窗口边框宽度
@@ -205,17 +218,17 @@ int main(int argc, char *argv[])
 		gtk_container_add(GTK_CONTAINER(frame[i]), table1[i]);
 	}
 
-	label = gtk_label_new("Select By PID:");
-	gtk_table_attach_defaults(GTK_TABLE(table), label, 0, 4, 0, 1);
+	label = gtk_label_new("Select Memory Address By PID:");
+	gtk_table_attach_defaults(GTK_TABLE(table), label, 0, 5, 0, 1);
 	gtk_widget_show(label);
 
 	entry = gtk_entry_new();
-	gtk_table_attach_defaults(GTK_TABLE(table), entry, 4, 6, 0, 1);
+	gtk_table_attach_defaults(GTK_TABLE(table), entry, 6, 8, 0, 1);
 	gtk_widget_show(entry);
 
 	button = gtk_button_new_with_label(" SELECT ");
 	gtk_widget_set_size_request(button, 10, 10);
-	gtk_table_attach_defaults(GTK_TABLE(table), button, 8, 10, 0, 1);
+	gtk_table_attach_defaults(GTK_TABLE(table), button, 9, 11, 0, 1);
 	g_signal_connect(G_OBJECT(button), "clicked", G_CALLBACK(on_clicked), NULL);
 	gtk_widget_show(button);
 
@@ -270,6 +283,9 @@ int main(int argc, char *argv[])
 	notebook_mem_init();
 	notebook_pro_init();
 //	notebook_vmem_init();
+
+	v_label = gtk_label_new("");
+	r_label = gtk_label_new("");
 
 	gtk_signal_connect(GTK_OBJECT(window), "delete_event", GTK_SIGNAL_FUNC(delete_event), NULL);
  
@@ -806,10 +822,11 @@ void notebook_vmem_init(void)
 
 	vtree_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(vmem_store));
 
-	g_object_unref(G_OBJECT(vtree_view));
+	g_object_unref(G_OBJECT(vmem_store));
+
+	gtk_widget_show(vtree_view);
 
 	gtk_container_add(GTK_CONTAINER(scrolled_window), vtree_view);
-	gtk_widget_show(vtree_view);
 
 	for(i = 0; i < 6; i++)
 	{
@@ -818,28 +835,33 @@ void notebook_vmem_init(void)
 		gtk_tree_view_append_column(GTK_TREE_VIEW(vtree_view), vcolumn); 
 	}
 
-	v_label = gtk_label_new("Virtual Memory Size:");
+//	v_label = gtk_label_new("");
 	gtk_table_attach_defaults(GTK_TABLE(table1[2]), v_label, 2, 9, 11, 12);
 	gtk_widget_show(v_label);
 
 	strcpy(txt, gtk_entry_get_text(GTK_ENTRY(entry)));
 	get_vmem_info(txt);
+//	printf("%s\n", txt);
 
 }
 
 int get_vmem_info(char *string)
 {
-	char buffer[100 * 1024];
-	char dir1[50];
-	int fd1;
+	char buffer[100 * 1024], buffer1[500];
+	char dir1[50], dir2[50];
+	int fd1, fd2;
 	int bytes;
-
+	int vmem;
+	int i = 1, j, m;
+	char *c[10000], *ch[500], *p, *buf[50];
+	GtkTreeIter iter;
+	char vmem_label_text[50];
 	sprintf(dir1, "/proc/%s/maps", string);
 	fd1 = open(dir1, O_RDONLY);
 	if(fd1 == -1)
 	{
 		char *title = "错误1";
-		char *content = "\n                 打开文件失败             \n";
+		char *content = "\n					打开文件失败				\n";
 		show_dialog(title, content);
 	}
 	
@@ -847,9 +869,170 @@ int get_vmem_info(char *string)
 	if(bytes == 0 || bytes == sizeof(buffer))
 	{
 		char *title1 = "错误2";
-		char *content1 = "\n                读取文件失败             \n";
+		char *content1 = "\n				读取文件失败                \n";
 		show_dialog(title1, content1);
 	}
+
+	close(fd1);
+//	printf("%d\n", bytes); 
+//	printf("%s", buffer);
+
+	c[0] = strtok(buffer, "\n");
+	i = 1;
+//	printf("11111111111111111111111111111111111111111111111111111111111111111\n");
+//	printf("%s\n", c[0]);
+	while(p = strtok(NULL, "\n"))
+	{
+		c[i] = p;
+//		printf("%d\n", i);
+//		printf("%s\n", c[i]);
+		i++;
+//		printf("%d\n", i);
+//		printf("%s\n", c[i]);
+	}
+
+	for(j = 0, m = 1; j < i; j++, m = 1)
+	{
+		ch[0] = strtok(c[j], " ");
+		while(p = strtok(NULL, " "))
+		{
+			ch[m] = p;
+//			printf("%d\n", m);
+//			printf("%s\n", ch[m]);
+			m++;
+//			printf("%d\n", m);
+//			printf("%s\n", ch[m]);
+		}
+
+		gtk_list_store_append(vmem_store, &iter);
+		gtk_list_store_set(vmem_store, &iter,
+						ADDRESS_COLUMN, ch[0],
+						PERMS_COLUMN, ch[1],
+						OFFSET_COLUMN, ch[2],
+						DEV_COLUMN, ch[3],
+						INODE_COLUMN, ch[4],
+						NAME1_COLUMN, ch[5],
+						-1);
+	}
+
+	sprintf(dir2, "/proc/%s/stat", string);
+	
+	fd2 = open(dir2, O_RDONLY);
+	read(fd2, buffer1, sizeof(buffer1));
+	close(fd2);
+
+	buf[0] = strtok(buffer1, " ");
+	i = 1;
+	while(p = strtok(NULL, " "))
+	{
+		buf[i] = p;
+		i++;
+	}
+
+	vmem = atoi(buf[22]);
+	vmem = vmem / 1024;
+
+	sprintf(vmem_label_text, "Virtual Memory Size: %d KB", vmem);
+
+	gtk_label_set_text(GTK_LABEL(v_label), vmem_label_text);
+
+	return 1;
+}
+
+void notebook_rmem_init(void)
+{
+	int i;
+	char txt[50];
+	char *col_name[2] = {"地址", "偏移量"};
+
+	vbox = gtk_vbox_new(FALSE, 0);
+	gtk_table_attach_defaults(GTK_TABLE(table1[3]), vbox, 0, 12, 0, 11);
+	gtk_widget_show(vbox);
+
+	scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+	gtk_widget_set_size_request(scrolled_window, 300, 300);
+	gtk_box_pack_start(GTK_BOX(vbox), scrolled_window, TRUE, TRUE, 0);
+	gtk_widget_show(scrolled_window);
+
+	rmem_store = gtk_list_store_new(NR_COLUMNS,
+								G_TYPE_STRING,
+								G_TYPE_STRING);
+
+	rtree_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(rmem_store));
+
+	g_object_unref(G_OBJECT(rmem_store));
+
+	gtk_widget_show(rtree_view);
+
+	gtk_container_add(GTK_CONTAINER(scrolled_window), rtree_view);
+
+	for(i = 0; i < 2; i++)
+	{
+		rrenderer = gtk_cell_renderer_text_new();
+		rcolumn = gtk_tree_view_column_new_with_attributes(col_name[i], rrenderer, "text", i, NULL);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(rtree_view), rcolumn);
+	}
+//-------------------------------------------------------
+//
+//
+//
+//待填充
+//
+//
+//
+//
+//--------------------------------------------------------
+	
+	gtk_table_attach_defaults(GTK_TABLE(table1[3]), r_label, 2, 9, 11, 12);
+	gtk_widget_show(r_label);
+
+	strcpy(txt, gtk_entry_get_text(GTK_ENTRY(entry)));
+	get_rmem_info(txt);
+
+}
+
+int get_rmem_info(char *string)
+{
+	char dir1[50], dir2[50];
+	int fd1, fd2;
+	char buffer[100 * 1024], buffer1[500];
+	int i = 1;
+	char *buf[50], *p;
+	int rmem;
+	char rmem_label_text[50];
+
+//---------------------------------------------------------
+//
+//
+//
+//
+//
+//
+//
+//
+//----------------------------------------------------------
+
+
+	sprintf(dir2, "/proc/%s/stat", string);
+
+	fd2 = open(dir2, O_RDONLY);
+	read(fd2 , buffer1, sizeof(buffer1));
+	close(fd2);
+
+	buf[0] = strtok(buffer1, " ");
+	i = 1;
+	while(p = strtok(NULL, " "))
+	{
+		buf[i] = p;
+		i++;
+	}
+
+	rmem = atoi(buf[23]);
+	rmem = rmem * 4;
+
+	sprintf(rmem_label_text, "Real Memory Address: %d KB", rmem);
+	
+	gtk_label_set_text(GTK_LABEL(r_label), rmem_label_text);
 
 	return 1;
 }
@@ -883,4 +1066,6 @@ void on_clicked(void)
 {
 	gtk_list_store_clear(vmem_store);
 	notebook_vmem_init();
+	gtk_list_store_clear(rmem_store);
+	notebook_rmem_init();
 }
